@@ -100,13 +100,14 @@ for aspect, parents in aspect_parents.items():
 
 # Compute aspect costs without recursion by caching the results in a dictionary
 aspect_costs = {k.lower(): v for k, v in get_global_config().aspect_cost_overrides.items()}
-remaining_aspects = set(aspect_parents.keys())
 
 # Initialize primal aspects (aspects without parents) with cost 1
 for aspect, parents in aspect_parents.items():
     if parents == (None, None) and aspect not in aspect_costs:
         aspect_costs[aspect] = 1
-        remaining_aspects.remove(aspect)
+
+# Aspects whose costs are not calculated yet
+remaining_aspects = set(aspect_parents.keys()) - set(aspect_costs.keys())
 
 # Iteratively compute costs for aspects whose parents' costs are known
 while remaining_aspects:
