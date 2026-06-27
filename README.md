@@ -1,5 +1,11 @@
 # Thaumcraft 4 Research Bot
 
+> **Fork notice.** This is a fork of [**leumasme/thaumcraft4-research-bot**](https://github.com/leumasme/thaumcraft4-research-bot)
+> by Temm — the original author of the bot, solver, and pixel-recognition pipeline.
+> This fork adds **OCR-based inventory-count detection** and **scarcity-aware cost
+> weighting** (see [This fork's additions](#this-forks-additions)). Licensed under
+> GPL-3.0, same as upstream; all original copyright and history are preserved.
+
 This is a screenshot-based bot to automate the Thaumcraft 4 research minigame (Minecraft 1.7.10).  
 Made for the [Gregtech: New Horizons](https://github.com/GTNewHorizons/GT-New-Horizons-Modpack) Modpack (uses TC Research Tweaks addon)  
 - Let me know if there's any other decent 1.7.10 modpacks using Thaumcraft 4, adding support shouldn't be much work
@@ -95,3 +101,25 @@ To build into a .exe:
 Use Github.  
 When encountering a crash on a specific puzzle, include the generated "debug_input.png".  
 You may also find me on the GTNH discord server.
+
+## This fork's additions
+
+Upstream listed *"No detection for how many Aspects the player owns"* as a
+limitation. This fork removes it:
+
+- **Inventory-count OCR** (`src/utils/count_ocr.py`) — template-matches the
+  Minecraft default-font digits Minecraft draws over each aspect slot to read
+  how many of each aspect you own, straight from the same screenshot.
+- **Scarcity-aware cost weighting** (`update_costs_from_inventory` in
+  `src/utils/aspects.py`) — re-weights the solver's aspect costs each board so
+  scarce aspects cost more (`ceil(scarcity_weight / count)`); compound aspects
+  are recomputed from their parents. Explicit `aspect_cost_overrides` in
+  `config.toml` still win. Wired into the main loop with a graceful fallback to
+  default costs if OCR fails.
+- **Cross-platform solver tests** — `test_ocr.py`, `test_e2e.py`, `repro.py`,
+  and `regression.py` stub out the Windows-only input deps so the OCR + solver
+  can be exercised on any OS (`uv run python test_e2e.py`). Sample boards live
+  in `test_inputs/`.
+
+Credit for everything else goes to the original author. Bug reports for the
+OCR/cost-weighting additions specifically can go to this fork's issue tracker.

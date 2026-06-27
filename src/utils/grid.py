@@ -7,7 +7,7 @@ from typing import Dict, Tuple, Optional, List
 from copy import deepcopy
 
 
-from ..utils.aspects import aspect_costs, find_cheapest_element_paths_many
+from ..utils.aspects import aspect_costs, aspect_graph, find_cheapest_element_paths_many
 from ..utils.log import log
 
 type Coordinate = Tuple[int, int]
@@ -234,7 +234,55 @@ class HexGrid:
 
         return paths_many
 
-    def pathfind_both_lengths_to_many(self, start: Coordinate, ends: List[Coordinate], lengths: List[int], aspect_variations = 1, board_variations = 1) -> List[tuple[List[str], List[Coordinate]]]:
+    def is_combination_cross_compatible(
+        self, element_path: List[str], board_path: List[Coordinate]
+    ) -> bool:
+        """Check that placing element_path aspects at board_path cells produces
+        a valid layout. Two cells are compatible iff their aspects are
+        identical OR one is the other's parent/child (adjacent in aspect_graph).
+
+        For every cell on the path, every hex-neighbor must be compatible
+        with that cell's assigned aspect. This covers two things:
+          (a) cells from previously applied paths (cross-path), and
+          (b) non-consecutive cells on this same path, which happens when
+              the board path winds such that distant path-indices become
+              hex-adjacent. These are NOT validated by the element-path
+              construction (that only checks consecutive pairs).
+
+        Endpoints are pre-existing placements whose adjacencies were already
+        validated when earlier paths placed them, but we still check their
+        adjacencies against *this* path's own non-neighboring cells.
+        """
+        path_set = set(board_path)
+        # Map coord -> position in path, so we can tell "this neighbor is
+        # the next cell in the chain" from "this neighbor is a distant cell
+        # the path winds back to".
+        coord_to_idx = {c: i for i, c in enumerate(board_path)}
+
+        for i, coord in enumerate(board_path):
+            my_aspect = element_path[i]
+            for nb in self.get_neighbors(coord):
+                # Skip the immediate predecessor/successor on the path —
+                # element_path guarantees they're graph-adjacent.
+                if nb in coord_to_idx and abs(coord_to_idx[nb] - i) == 1:
+                    continue
+                # Determine the aspect currently at the neighbor. If the
+                # neighbor is on this same path but not consecutive, its
+                # aspect comes from this path's element_path.
+                if nb in coord_to_idx:
+                    nb_aspect = element_path[coord_to_idx[nb]]
+                else:
+                    nb_aspect = self.get_value(nb)
+                    if nb_aspect in (None, "Free", "Missing"):
+                        continue
+                if my_aspect == nb_aspect:
+                    continue
+                if nb_aspect in aspect_graph[my_aspect]:
+                    continue
+                return False
+        return True
+
+    def pathfind_both_lengths_to_many(self, start: Coordinate, ends: List[Coordinate], lengths: List[int], aspect_variations = 3, board_variations = 2) -> List[tuple[List[str], List[Coordinate]]]:
         assert len(lengths) == len(ends), "Lengths and ends must be the same length"
         assert len(ends) > 0, "Must have at least one end"
         end_aspects = [self.get_value(end) for end in ends]
@@ -245,7 +293,9 @@ class HexGrid:
         valid_path_combinations: list[tuple[List[str], List[Coordinate]]] = []
         for i in range(len(lengths)):
             combinations = itertools.product(element_paths[i][:aspect_variations], board_paths[i][:board_variations])
-            valid_path_combinations.extend(combinations)
+            for elem, board in combinations:
+                if self.is_combination_cross_compatible(elem, board):
+                    valid_path_combinations.append((elem, board))
 
         return valid_path_combinations
 

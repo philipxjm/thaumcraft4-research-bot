@@ -4,3 +4,8 @@ __pycache__/
 *.pyo
 dist/
 config.toml
+.venv/
+test_inputs/
+test_sample/
+debug_*.png
+*.patch

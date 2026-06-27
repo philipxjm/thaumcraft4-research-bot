@@ -30,12 +30,14 @@ def find_frame_slow(image, target_color):
     left_x, top_y = 0, 0
     right_x, bottom_y = image.width, image.height
     pixels = image.load()
+    found_any = False
 
     # Iterate over all pixels to find the bounding box of the target color frame
     # Uses a Shrinking approach to find the INNER bounding box of the frame if its thick
     for y in range(image.height):
         for x in range(image.width):
             if pixels[x, y] == target_color:
+                found_any = True
                 # Check for updating the top-left corner (min_x, min_y)
                 if (
                     (x > left_x or y > top_y)
@@ -51,6 +53,11 @@ def find_frame_slow(image, target_color):
                     and has_consecutive_pixels(image, pixels, x, y, 0, -1)
                 ):
                     right_x, bottom_y = x, y
+    if not found_any:
+        raise Exception(
+            f"Frame color {target_color} not found anywhere in the image. "
+            "Is the custom resource pack active and the research-table GUI open?"
+        )
     return (left_x, top_y, right_x, bottom_y)
 
 def find_frame_fast(image, target_color):

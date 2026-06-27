@@ -212,3 +212,57 @@ def _find_cheapest_element_paths_many(start: str, ends_list: Tuple[str, ...], n_
 
 def calculate_cost_of_aspect_path(path: List[str]) -> int:
     return sum(aspect_costs[aspect] for aspect in path)
+
+
+def update_costs_from_inventory(inventory_counts: dict[str, int],
+                                scarcity_weight: int = 30) -> None:
+    """Recompute ``aspect_costs`` so scarce aspects cost more.
+
+    Each aspect's base cost becomes ``ceil(scarcity_weight / count)`` (floored
+    at 1). Aspects absent from ``inventory_counts`` keep their defaults.
+    Compound aspects are then recomputed as the sum of their parents' costs,
+    so routing through a scarce compound is at least as expensive as routing
+    through its primal decomposition. Explicit `aspect_cost_overrides` in
+    config.toml still win.
+
+    Re-sorts ``aspect_graph`` neighbour lists by new cost, and clears the
+    element-path cache. Call once per board, BEFORE invoking the solver.
+    """
+    import math
+    config_overrides = {
+        k.lower(): v for k, v in get_global_config().aspect_cost_overrides.items()
+    }
+
+    new_costs: dict[str, int] = dict(config_overrides)
+    for aspect, parents in aspect_parents.items():
+        if parents == (None, None) and aspect not in new_costs:
+            count = inventory_counts.get(aspect)
+            if count is None or count <= 0:
+                new_costs[aspect] = 1
+            else:
+                new_costs[aspect] = max(1, math.ceil(scarcity_weight / count))
+
+    remaining = set(aspect_parents.keys()) - set(new_costs.keys())
+    while remaining:
+        progress = False
+        for aspect in list(remaining):
+            parents = aspect_parents[aspect]
+            if all(p in new_costs for p in parents if p is not None):
+                summed = sum(new_costs[p] for p in parents if p is not None)
+                count = inventory_counts.get(aspect)
+                if count is not None and count > 0:
+                    scarce = max(1, math.ceil(scarcity_weight / count))
+                    new_costs[aspect] = max(summed, scarce)
+                else:
+                    new_costs[aspect] = summed
+                remaining.remove(aspect)
+                progress = True
+        if not progress:
+            log.error("Cannot update costs: unresolved %s", remaining)
+            break
+
+    aspect_costs.clear()
+    aspect_costs.update(new_costs)
+    for neighbours in aspect_graph.values():
+        neighbours.sort(key=lambda a: aspect_costs[a])
+    _find_cheapest_element_paths_many.cache_clear()

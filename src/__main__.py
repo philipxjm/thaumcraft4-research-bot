@@ -15,7 +15,8 @@ from .utils.window import *
 from .utils.finder import *
 from .utils.config import get_global_config
 from .utils.grid import HexGrid, SolvingHexGrid, OnscreenAspect
-from .utils.aspects import aspect_parents, _find_cheapest_element_paths_many
+from .utils.aspects import aspect_parents, _find_cheapest_element_paths_many, update_costs_from_inventory
+from .utils.count_ocr import ocr_all_counts
 from .solvers.ringsolver import solve as ringsolver_solve
 from .utils.renderer import *
 from .utils.log import log
@@ -65,6 +66,17 @@ def normal_mode(config: Config):
         grid = generate_hexgrid_from_image(image, pixels)
 
         save_input_image(image, grid)
+
+        # OCR inventory counts and re-weight solver costs so scarce aspects
+        # are avoided. This needs to happen every board because counts change
+        # as the user places aspects.
+        try:
+            import numpy as np
+            counts = ocr_all_counts(np.array(image), inventory_aspects)
+            log.info("OCR'd %d aspect counts", len(counts))
+            update_costs_from_inventory(counts)
+        except Exception:
+            log.exception("Inventory OCR failed; proceeding with default costs")
 
         draw = ImageDraw.Draw(image)
         try:
