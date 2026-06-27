@@ -40,7 +40,7 @@ Some technical know-how currently required.
   - Make sure a large item tooltip isn't covering up the game board
     - You may want to hide NEI (default keybind in GTNH: `O`)
 - Open a terminal in the project folder (Windows Terminal/Powershell/CMD)
-- Start the project with the command: `uv run main`
+- Start the project with the command: `uv run -m src`
   - The bot will now:
     - Bring the game to the foreground
     - Take a screenshot
@@ -95,10 +95,10 @@ this fork's build additionally includes the inventory-count OCR feature.)
 
 To run:
 - Install [uv](https://docs.astral.sh/uv/)
-- Run in CLI: `uv run main`
-  - To run in test mode: `uv run main test`
+- Run in CLI: `uv run -m src`
+  - To run in test mode: `uv run -m src test`
     - This uses `debug_input.png` instead of taking a screenshot, and doesn't perform any clicks/window actions
-  - To run in test-all mode: `uv run main test_all`
+  - To run in test-all mode: `uv run -m src test_all`
     - Runs test mode for all inputs in the `test_inputs` folder, for benchmarking & testing that all boards can be solved
 
 To build into a .exe:  
