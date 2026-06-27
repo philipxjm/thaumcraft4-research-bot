@@ -16,11 +16,22 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Build executable
-        run: uv run -m nuitka --python-flag=-m --output-dir=dist --mode=onefile --lto=yes --output-file=thaumcraft4-research-bot.exe --assume-yes-for-downloads src
+      - name: Build executable (standalone folder)
+        # Standalone (not onefile): a folder of exe + DLLs that does NOT
+        # self-extract at startup, which avoids the Wacatac.B!ml false positive
+        # that onefile Python builds trigger. resources/ is bundled so the
+        # solution renderer can find the aspect icons.
+        run: uv run -m nuitka --python-flag=-m --output-dir=dist --mode=standalone --lto=yes --include-data-dir=resources=resources --output-file=thaumcraft4-research-bot.exe --assume-yes-for-downloads src
+
+      - name: Package standalone build
+        shell: pwsh
+        run: |
+          $dist = Get-ChildItem -Path dist -Directory -Filter *.dist | Select-Object -First 1
+          Rename-Item -Path $dist.FullName -NewName "thaumcraft4-research-bot"
+          Compress-Archive -Path (Join-Path dist "thaumcraft4-research-bot") -DestinationPath thaumcraft4-research-bot-windows.zip
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: executable
-          path: dist/thaumcraft4-research-bot.exe
+          path: thaumcraft4-research-bot-windows.zip

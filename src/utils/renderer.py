@@ -1,3 +1,6 @@
+import sys
+from pathlib import Path
+
 from PIL import ImageDraw
 import PIL.Image
 from typing import Tuple, List
@@ -7,12 +10,37 @@ from ..utils.finder import get_center_of_box
 from ..utils.colors import aspect_colors
 from ..utils.log import log
 
+
+def _resource_base() -> Path:
+    """Locate the bundled ``resources/`` dir independent of the working dir.
+
+    Works for a source checkout (repo root, two levels above this package) and
+    for a Nuitka standalone/onefile build (``resources`` is shipped next to the
+    ``src`` package via ``--include-data-dir``). Falls back to the cwd.
+    """
+    for base in (
+        Path(__file__).resolve().parents[2],   # <root>/src/utils/renderer.py -> <root>
+        Path(sys.argv[0]).resolve().parent,    # next to the launched exe
+        Path.cwd(),
+    ):
+        if (base / "resources" / "aspects").is_dir():
+            return base
+    return Path.cwd()
+
+
+_RES = _resource_base()
+
+
 def get_aspect_icon_from_name(name):
-    try:
-        return PIL.Image.open(f"resources/aspects/color/{name}.png")
-    except FileNotFoundError:
-        log.warning(f"Could not find aspect icon for {name}")
-        return PIL.Image.open("resources/aspects/mono/perditio.png")
+    icon = _RES / "resources" / "aspects" / "color" / f"{name}.png"
+    if icon.exists():
+        return PIL.Image.open(icon)
+    log.warning(f"Could not find aspect icon for {name}")
+    fallback = _RES / "resources" / "aspects" / "mono" / "perditio.png"
+    if fallback.exists():
+        return PIL.Image.open(fallback)
+    # Last resort: a transparent pixel so rendering never hard-crashes.
+    return PIL.Image.new("RGBA", (1, 1), (0, 0, 0, 0))
 
 
 def draw_board_coords(grid, draw: ImageDraw.ImageDraw):

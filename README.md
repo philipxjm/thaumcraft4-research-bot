@@ -83,15 +83,22 @@ A: That's too cheaty in my opinion.
 ## Building & Running
 
 To run as a non-technical user (Windows):
-1. Download `thaumcraft4-research-bot.exe` **and** `resource-pack.zip` from
+1. Download `thaumcraft4-research-bot-windows.zip` **and** `resource-pack.zip` from
    [this fork's releases page](https://github.com/philipxjm/thaumcraft4-research-bot/releases).
-2. Drop `resource-pack.zip` into your `.minecraft/resourcepacks/` folder and
+2. Extract `thaumcraft4-research-bot-windows.zip` anywhere and run
+   `thaumcraft4-research-bot.exe` from inside the extracted folder (keep the folder
+   contents together — the `.exe` needs the files next to it). On first run it
+   auto-creates a `config.toml` with sensible defaults.
+3. Drop `resource-pack.zip` into your `.minecraft/resourcepacks/` folder and
    enable it in-game (Options → Resource Packs).
-3. Run the `.exe`. On first run it auto-creates a `config.toml` next to it with
-   sensible defaults — edit it only if you want to change the window title or hotkey.
 
-(The original upstream `.exe` is on [leumasme's releases page](https://github.com/leumasme/thaumcraft4-research-bot/releases);
-this fork's build additionally includes the inventory-count OCR feature.)
+> The build is an unsigned Python executable, so Windows Defender may show a
+> heuristic warning (e.g. `Wacatac.B!ml`) — this is a known false positive for
+> compiled Python apps. The full source + the GitHub Actions build log are public
+> if you'd like to verify; you can also just run from source (below).
+
+(The original upstream build is on [leumasme's releases page](https://github.com/leumasme/thaumcraft4-research-bot/releases);
+this fork additionally includes the inventory-count OCR feature.)
 
 To run:
 - Install [uv](https://docs.astral.sh/uv/)

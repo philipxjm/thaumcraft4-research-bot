@@ -411,9 +411,14 @@ def save_input_image(image: Image, grid: HexGrid):
     board_hash = grid.hash_board()[:6]
     log.info("Saving sample image, Board hash is %s", board_hash)
     img_path = Path("./test_inputs/board_" + board_hash + ".png")
-    if not img_path.exists():
-        img_path.parent.mkdir(exist_ok=True)
-        image.save(str(img_path))
+    try:
+        if not img_path.exists():
+            img_path.parent.mkdir(exist_ok=True)
+            image.save(str(img_path))
+    except OSError as e:
+        # Saving the sample is best-effort; a read-only working dir (e.g. the
+        # exe sitting in Program Files) must not break solving.
+        log.warning("Could not save sample image: %s", e)
 
 if __name__ == "__main__":
     main()
