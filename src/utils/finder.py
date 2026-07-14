@@ -105,11 +105,17 @@ def find_aspects_in_frame(
             aspect_name = rgb_to_aspect(color)
             if aspect_name is not None:
                 # Found a valid aspect pixel
-                bounding_box = flood_fill(pixels, x, y, color, visited, frame_bounds)
+                bounding_box, pixel_count = flood_fill(pixels, x, y, color, visited, frame_bounds)
                 bb_min_x, bb_min_y, bb_max_x, bb_max_y = bounding_box
                 smaller_side = min(bb_max_x - bb_min_x, bb_max_y - bb_min_y)
-                # TODO: False positive on the letter color, bad fix doesn't work with larger gui size?
-                if smaller_side > 8:
+                area = (bb_max_x - bb_min_x + 1) * (bb_max_y - bb_min_y + 1)
+                # Real icons are solid blocks of their color. GUI scaling can
+                # anti-alias hex borders into thin rings whose interpolated
+                # color exactly matches some aspect (the pale empty-hex pink
+                # blends into ordo/motus lavender), and a ring has a large
+                # bounding box while containing almost no pixels - so require
+                # the region to actually fill its box.
+                if smaller_side > 8 and pixel_count >= 0.35 * area:
                     found_aspects.append((bounding_box, aspect_name))
             else:
                 visited.add((x, y))
@@ -134,9 +140,11 @@ def flood_fill(
 
     stack = [(x, y)]
     visited.add((x, y))
+    pixel_count = 0
 
     while stack:
         cx, cy = stack.pop()
+        pixel_count += 1
         # Update bounding box
         min_x_bb = min(min_x_bb, cx)
         max_x_bb = max(max_x_bb, cx)
@@ -158,7 +166,7 @@ def flood_fill(
             else:
                 visited.add((nx, ny))
 
-    return (min_x_bb, min_y_bb, max_x_bb, max_y_bb)
+    return (min_x_bb, min_y_bb, max_x_bb, max_y_bb), pixel_count
 
 
 def find_squares_in_frame(

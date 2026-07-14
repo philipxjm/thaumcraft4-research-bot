@@ -235,7 +235,7 @@ class HexGrid:
         return paths_many
 
     def is_combination_cross_compatible(
-        self, element_path: List[str], board_path: List[Coordinate]
+        self, element_path: List[str], board_path: List[Coordinate], strict: bool = True
     ) -> bool:
         """Check that placing element_path aspects at board_path cells produces
         a valid layout. Two cells are compatible iff their aspects are
@@ -253,6 +253,15 @@ class HexGrid:
         validated when earlier paths placed them, but we still check their
         adjacencies against *this* path's own non-neighboring cells.
         """
+        if not strict:
+            # The actual minigame only requires the chains themselves to link;
+            # unrelated adjacent aspects simply don't connect and carry no
+            # penalty. Consecutive path cells are graph-adjacent by the element
+            # path's construction, so nothing further to check. Strict mode is
+            # kept as the default because its layouts look cleaner and match
+            # upstream behavior; relaxed is the fallback for dense boards where
+            # no fully-compatible layout exists.
+            return True
         path_set = set(board_path)
         # Map coord -> position in path, so we can tell "this neighbor is
         # the next cell in the chain" from "this neighbor is a distant cell
@@ -282,7 +291,7 @@ class HexGrid:
                 return False
         return True
 
-    def pathfind_both_lengths_to_many(self, start: Coordinate, ends: List[Coordinate], lengths: List[int], aspect_variations = 3, board_variations = 2) -> List[tuple[List[str], List[Coordinate]]]:
+    def pathfind_both_lengths_to_many(self, start: Coordinate, ends: List[Coordinate], lengths: List[int], aspect_variations = 3, board_variations = 2, strict = True) -> List[tuple[List[str], List[Coordinate]]]:
         assert len(lengths) == len(ends), "Lengths and ends must be the same length"
         assert len(ends) > 0, "Must have at least one end"
         end_aspects = [self.get_value(end) for end in ends]
@@ -294,7 +303,7 @@ class HexGrid:
         for i in range(len(lengths)):
             combinations = itertools.product(element_paths[i][:aspect_variations], board_paths[i][:board_variations])
             for elem, board in combinations:
-                if self.is_combination_cross_compatible(elem, board):
+                if self.is_combination_cross_compatible(elem, board, strict=strict):
                     valid_path_combinations.append((elem, board))
 
         return valid_path_combinations
@@ -323,16 +332,33 @@ class HexGrid:
             lengths_plus_one = [length + 1 for length in lengths]
             paths.extend(self.pathfind_both_lengths_to_many(start, reachable_ends, lengths_plus_one))
 
-        # On small boards the spatial shortest paths are short while the aspect
-        # chain between two exotic aspects can be much longer; when nothing was
-        # found at all, keep trying longer (wigglier) routes before giving up.
-        # Only runs in the would-have-failed case, so solvable boards keep the
-        # exact upstream behavior and speed.
-        extra = 2
+        # Desperation ladder: everything below only runs when the answer would
+        # otherwise be "no solution", so boards the upstream search already
+        # solves keep its exact behavior and speed.
+        #
+        # First widen the search within strict adjacency rules: longer
+        # (wigglier) routes and more chain/route candidates - on small boards
+        # the spatial shortest paths are short while the aspect chain between
+        # two exotic aspects can be much longer.
+        extra = 0
         while not paths and extra <= 4:
             longer = [length + extra for length in lengths]
-            paths.extend(self.pathfind_both_lengths_to_many(start, reachable_ends, longer))
+            paths.extend(self.pathfind_both_lengths_to_many(
+                start, reachable_ends, longer, aspect_variations=8, board_variations=8))
             extra += 1
+
+        # Then relax the adjacency rule: strict mode demands every placed
+        # aspect be compatible with all its neighbors, but the game itself
+        # only requires the chains to link - unrelated adjacent aspects are
+        # legal. Dense boards often have no fully-compatible layout at all.
+        if not paths:
+            log.info("No fully-compatible layout found; relaxing adjacency rules for this search")
+            extra = 0
+            while not paths and extra <= 4:
+                longer = [length + extra for length in lengths]
+                paths.extend(self.pathfind_both_lengths_to_many(
+                    start, reachable_ends, longer, aspect_variations=8, board_variations=8, strict=False))
+                extra += 1
 
         return paths
 

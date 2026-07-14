@@ -218,7 +218,13 @@ def setup_image(test_mode=True, skip_focus=False):
         window = find_game(get_global_config().game_window_title)
 
         if not window.isActive:
-            window.activate()
+            try:
+                window.activate()
+            except Exception as e:
+                # pygetwindow raises "Error code from Windows: 0 - The
+                # operation completed successfully" when the window is already
+                # on its way to the foreground; harmless, keep going.
+                log.warning("Window activate quirk ignored: %s", e)
             sleep(0.5)
         if not skip_focus:
             if not window.isMaximized:
