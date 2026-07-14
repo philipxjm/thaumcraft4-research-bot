@@ -21,7 +21,7 @@ jobs:
         # self-extract at startup, which avoids the Wacatac.B!ml false positive
         # that onefile Python builds trigger. resources/ is bundled so the
         # solution renderer can find the aspect icons.
-        run: uv run -m nuitka --python-flag=-m --output-dir=dist --mode=standalone --lto=yes --include-data-dir=resources=resources --output-file=thaumcraft4-research-bot.exe --assume-yes-for-downloads src
+        run: uv run -m nuitka --python-flag=-m --output-dir=dist --mode=standalone --lto=yes --enable-plugin=tk-inter --include-data-dir=resources=resources --output-file=thaumcraft4-research-bot.exe --assume-yes-for-downloads src
 
       - name: Package standalone build
         shell: pwsh

@@ -41,13 +41,17 @@ Some technical know-how currently required.
     - You may want to hide NEI (default keybind in GTNH: `O`)
 - Open a terminal in the project folder (Windows Terminal/Powershell/CMD)
 - Start the project with the command: `uv run -m src`
-  - The bot will now:
+  - A persistent window opens. Press **Solve board** (or the global hotkey,
+    default `ctrl+r`) and the bot will:
     - Bring the game to the foreground
     - Take a screenshot
     - Parse the puzzle board from the screenshot
     - Generate a solution for the puzzle
     - Move the mouse to place the aspects according to the solution
-- After it's done placing aspects, put in the next unsolved Research Notes and press enter in the terminal to solve the next board
+- After it's done placing aspects, put in the next unsolved Research Notes and
+  press Solve again — the window stays open between boards, shows the bot's
+  log, and has a **Retry placement** button if a placement got interrupted
+- Prefer the old terminal-only flow? Run `uv run -m src console`
 
 ## Limitations
 - **No Linux Support**

@@ -36,74 +36,114 @@ def main():
     config = get_global_config()
     if TEST_ALL_MODE:
         test_all_samples(config)
+    elif TEST_MODE:
+        solve_board(config, BotState(), test_mode=True)
+    elif MODE == "console":
+        console_mode(config)
     else:
-        normal_mode(config)
+        gui_mode(config)
 
     print("CacheInfo find cheapest element paths", _find_cheapest_element_paths_many.cache_info())
     print("CacheInfo calculate distance", HexGrid.calculate_distance.cache_info())
     print("CacheInfo get neighbors", HexGrid.get_neighbors.cache_info())
 
-def normal_mode(config: Config):
-    inventory_aspects: list[OnscreenAspect] | None = None
-    while True:
-        image, window_base_coords = setup_image(
-            TEST_MODE, inventory_aspects is not None
+class BotState:
+    """Carries what survives between boards: the inventory panel layout and
+    the last solution (for retrying placement)."""
+
+    def __init__(self):
+        self.inventory_aspects: list[OnscreenAspect] | None = None
+        self.window_base_coords = None
+        self.solved = None
+
+
+def solve_board(config: Config, state: BotState, test_mode: bool = False):
+    """One full board cycle: screenshot, parse, OCR counts, solve, render the
+    debug image. Placement is separate (place_solution) so the GUI can retry."""
+    image, window_base_coords = setup_image(
+        test_mode, state.inventory_aspects is not None
+    )
+
+    pixels = image.load()
+
+    if test_mode:
+        state.inventory_aspects = analyze_image_inventory(image, pixels)
+    elif state.inventory_aspects is None:
+        state.inventory_aspects, needs_image_retake = find_and_create_inventory_aspects(image, pixels, window_base_coords)
+        # TODO: scuffed!
+        if needs_image_retake:
+            image, window_base_coords = setup_image(
+                test_mode, state.inventory_aspects is not None
+            )
+            pixels = image.load()
+
+    grid = generate_hexgrid_from_image(image, pixels)
+
+    save_input_image(image, grid)
+
+    # OCR inventory counts and re-weight solver costs so scarce aspects
+    # are avoided. This needs to happen every board because counts change
+    # as the user places aspects.
+    try:
+        import numpy as np
+        counts = ocr_all_counts(np.array(image), state.inventory_aspects)
+        log.info("OCR'd %d aspect counts", len(counts))
+        update_costs_from_inventory(counts)
+    except Exception:
+        log.exception("Inventory OCR failed; proceeding with default costs")
+
+    draw = ImageDraw.Draw(image)
+    try:
+        solved = generate_solution_from_hexgrid(grid)
+    except Exception as e:
+        print("Failed to generate solution, dumping board interpretation debug render")
+        draw_board_coords(grid, draw)
+        image.save("debug_render.png")
+        raise e
+
+    for path in solved.applied_paths:
+        draw_board_path(image, solved, path)
+        draw_placing_hints(
+            image, draw, grid, state.inventory_aspects, path
         )
 
-        pixels = image.load()
+    draw_board_coords(solved, draw)
 
-        if TEST_MODE:
-            inventory_aspects = analyze_image_inventory(image, pixels)
-        elif inventory_aspects is None:
-            inventory_aspects, needs_image_retake = find_and_create_inventory_aspects(image, pixels, window_base_coords)
-            # TODO: scuffed!
-            if needs_image_retake:
-                image, window_base_coords = setup_image(
-                    TEST_MODE, inventory_aspects is not None
-                )
-                pixels = image.load()
+    image.save("debug_render.png")
 
-        grid = generate_hexgrid_from_image(image, pixels)
+    state.window_base_coords = window_base_coords
+    state.solved = solved
+    return solved
 
-        save_input_image(image, grid)
 
-        # OCR inventory counts and re-weight solver costs so scarce aspects
-        # are avoided. This needs to happen every board because counts change
-        # as the user places aspects.
-        try:
-            import numpy as np
-            counts = ocr_all_counts(np.array(image), inventory_aspects)
-            log.info("OCR'd %d aspect counts", len(counts))
-            update_costs_from_inventory(counts)
-        except Exception:
-            log.exception("Inventory OCR failed; proceeding with default costs")
+def place_solution(state: BotState):
+    place_all_aspects(state.window_base_coords, state.inventory_aspects, state.solved)
 
-        draw = ImageDraw.Draw(image)
-        try:
-            solved = generate_solution_from_hexgrid(grid)
-        except Exception as e:
-            print("Failed to generate solution, dumping board interpretation debug render")
-            draw_board_coords(grid, draw)
-            image.save("debug_render.png")
-            raise e
 
-        for path in solved.applied_paths:
-            draw_board_path(image, solved, path)
-            draw_placing_hints(
-                image, draw, grid, inventory_aspects, path
-            )
-
-        draw_board_coords(solved, draw)
-
-        image.save("debug_render.png")
-
-        if TEST_MODE:
-            break
+def console_mode(config: Config):
+    state = BotState()
+    while True:
+        solve_board(config, state)
 
         action = "retry"
         while action == "retry":
-            place_all_aspects(window_base_coords, inventory_aspects, solved)
+            place_solution(state)
             action = wait_for_action(config.next_board_hotkey)
+
+
+def gui_mode(config: Config):
+    from .gui import run_gui
+
+    state = BotState()
+
+    def solve_and_place():
+        solve_board(config, state)
+        place_solution(state)
+
+    def retry_place():
+        place_solution(state)
+
+    run_gui(solve_and_place, retry_place, hotkey=config.next_board_hotkey)
 
 
 def wait_for_action(hotkey: str | None) -> str:
