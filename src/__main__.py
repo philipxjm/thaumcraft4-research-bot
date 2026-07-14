@@ -421,4 +421,18 @@ def save_input_image(image: Image, grid: HexGrid):
         log.warning("Could not save sample image: %s", e)
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass
+    except Exception:
+        # Keep the console open on a crash: double-click users otherwise see the
+        # window flash and vanish with the error unread.
+        traceback.print_exc()
+        print()
+        print("The bot crashed - the error is above.")
+        print("Most common cause: the game isn't ready. Start Minecraft, open a")
+        print("Research Table with an unsolved Research Notes item, then run this")
+        print("again. The game window title must start with the game-window-title")
+        print('value in config.toml (default: "GT: New Horizons").')
+        input("Press Enter to close...")

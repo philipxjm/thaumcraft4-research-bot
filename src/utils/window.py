@@ -43,7 +43,16 @@ def find_game(title: str) -> gw.Win32Window:
     if len(windows) != 1:
         for window in windows:
             log.error(window)
-        raise Exception("Wrong number of game windows: " + str(len(windows)))
+        if not windows:
+            raise Exception(
+                f'Game window not found: no window title starts with "{title}". '
+                "Is Minecraft running? (The title prefix is configurable via "
+                "game-window-title in config.toml.)"
+            )
+        raise Exception(
+            f'{len(windows)} windows match the title "{title}" - close the extras '
+            "or make game-window-title in config.toml more specific."
+        )
     return windows[0]
 
 
