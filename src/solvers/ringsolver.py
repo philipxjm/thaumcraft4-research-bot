@@ -29,6 +29,7 @@ class RingSolver:
     def __init__(self, solving: SolvingHexGrid, start_aspects: List[Tuple[int, int]]):
         self.solving = solving
         self.start_aspects = start_aspects
+        self.best_solution = None
         self.best_solution_cost = 999999999  # TODO: proper placeholder value
         self.all_paths = []
         self.path_variation_indices = []
@@ -145,4 +146,13 @@ class RingSolver:
         while not done:
             done = not self.do_solver_iteration()
 
+        if self.best_solution is None:
+            raise Exception(
+                "No solution found for this board. This usually means the board "
+                "was misread from the screenshot - check debug_render.png for the "
+                "bot's interpretation, and make sure the bot's resource pack is "
+                "enabled ABOVE any other resource pack that changes Thaumcraft "
+                "or aspect textures. To report the board, include the matching "
+                "test_inputs/board_*.png file."
+            )
         return self.best_solution
