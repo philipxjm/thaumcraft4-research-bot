@@ -54,15 +54,16 @@ Some technical know-how currently required.
   - I don't want to deal with finding a universal way of taking screenshots and performing mouse input
 - Solver algorithm currently doesn't scale well with many (7+) given aspects on large boards
   - It gets quite slow. On the largest boards (9+ given aspects) it may currently take *minutes* to calculate
-- No detection for how many Aspects the player owns
-  - I don't want to deal with fiddly OCR on the tiny minecraft font
-  - This also means which aspects the algorithm considers as "Expensive" and "Cheap" currently doesn't consider things you may have a lot of (like Instrumentum)
+- ~~No detection for how many Aspects the player owns~~ — **solved in this fork**
+  (inventory-count OCR + scarcity-aware costs, see
+  [This fork's additions](#this-forks-additions))
 - Currently no way to reduce the mouse interaction speed
   - The current speed works consistently for me, but might break on laggier machines.
 - Not well tested on different GUI sizes & Screen Resolutions
 - Currently not very user-friendly. Missing:
   - A no-code way to configure custom costs for aspects
-  - Pre-bundled .exe releases
+  - ~~Pre-bundled .exe releases~~ — **available on
+    [this fork's releases page](https://github.com/philipxjm/thaumcraft4-research-bot/releases)**
   - More comprehensible error messages
 
 ## FAQ
@@ -107,9 +108,14 @@ To run:
     - This uses `debug_input.png` instead of taking a screenshot, and doesn't perform any clicks/window actions
   - To run in test-all mode: `uv run -m src test_all`
     - Runs test mode for all inputs in the `test_inputs` folder, for benchmarking & testing that all boards can be solved
+    - This repo ships only two sample boards to keep the download small; the full
+      ~700-board corpus is in the
+      [upstream repository](https://github.com/leumasme/thaumcraft4-research-bot)'s
+      `test_inputs` folder
 
-To build into a .exe:  
-`uv run -m nuitka --python-flag=-m --output-dir=dist --mode=onefile --lto=yes src`
+To build into a .exe (standalone folder; don't use `--mode=onefile`, its
+self-extracting bootloader is a common antivirus false positive):
+`uv run -m nuitka --python-flag=-m --output-dir=dist --mode=standalone --lto=yes --include-data-dir=resources=resources src`
 
 ## Issues, Contributions, Contact
 
