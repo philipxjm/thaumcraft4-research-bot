@@ -323,6 +323,17 @@ class HexGrid:
             lengths_plus_one = [length + 1 for length in lengths]
             paths.extend(self.pathfind_both_lengths_to_many(start, reachable_ends, lengths_plus_one))
 
+        # On small boards the spatial shortest paths are short while the aspect
+        # chain between two exotic aspects can be much longer; when nothing was
+        # found at all, keep trying longer (wigglier) routes before giving up.
+        # Only runs in the would-have-failed case, so solvable boards keep the
+        # exact upstream behavior and speed.
+        extra = 2
+        while not paths and extra <= 4:
+            longer = [length + extra for length in lengths]
+            paths.extend(self.pathfind_both_lengths_to_many(start, reachable_ends, longer))
+            extra += 1
+
         return paths
 
     def invalidate_cache(self) -> None:

@@ -147,12 +147,18 @@ class RingSolver:
             done = not self.do_solver_iteration()
 
         if self.best_solution is None:
+            # Dump the parsed board so a failure report contains everything
+            # needed to reproduce it (holes are the complement of these cells).
+            log.info("No solution found. Parsed board dump (x,y aspect):")
+            for coord, aspect in sorted(self.solving, key=lambda e: (e[0][1], e[0][0])):
+                if aspect != "Missing":
+                    log.info("  %s,%s %s", coord[0], coord[1], aspect)
             raise Exception(
                 "No solution found for this board. This usually means the board "
                 "was misread from the screenshot - check debug_render.png for the "
                 "bot's interpretation, and make sure the bot's resource pack is "
                 "enabled ABOVE any other resource pack that changes Thaumcraft "
-                "or aspect textures. To report the board, include the matching "
-                "test_inputs/board_*.png file."
+                "or aspect textures. To report the board, copy the board dump "
+                "above and include the matching test_inputs/board_*.png file."
             )
         return self.best_solution
