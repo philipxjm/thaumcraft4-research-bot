@@ -132,7 +132,7 @@ def solve_board(config: Config, state: BotState, test_mode: bool = False):
         import numpy as np
         counts = ocr_all_counts(np.array(image), state.inventory_aspects)
         log.info("OCR'd %d aspect counts", len(counts))
-        update_costs_from_inventory(counts)
+        update_costs_from_inventory(counts, owned_aspects={n for _, n in state.inventory_aspects})
     except Exception:
         log.exception("Inventory OCR failed; proceeding with default costs")
     t_ocr = time.time()
@@ -251,9 +251,28 @@ def ensure_solution_aspects(state: BotState) -> bool:
         for aspect, _ in path[1:-1]:
             needed[aspect] += 1
 
-    def scan():
-        image, window_base_coords = setup_image(False, True)
-        panel = dedupe_inventory_aspects(analyze_image_inventory(image, image.load()))
+    prev_owned = {name for _, name in state.inventory_aspects} if state.inventory_aspects else set()
+
+    def scan(expect=frozenset()):
+        # Research-point orbs from a just-completed board fly across the
+        # aspect panel and cover slots; a scan taken mid-animation "loses"
+        # aspects (once even a 945-stock primal). If anything we expect to
+        # own is missing, wait out the animation and re-shoot.
+        panel = []
+        window_base_coords = None
+        image = None
+        for _ in range(3):
+            image, window_base_coords = setup_image(False, True)
+            panel = dedupe_inventory_aspects(analyze_image_inventory(image, image.load()))
+            lost = set(expect) - {name for _, name in panel}
+            if lost:
+                log.info(
+                    "Panel scan is missing %s (an animation may be covering the panel); rescanning...",
+                    ", ".join(sorted(lost)),
+                )
+                sleep(1.2)
+                continue
+            break
         state.inventory_aspects = panel
         state.window_base_coords = window_base_coords
         try:
@@ -262,7 +281,7 @@ def ensure_solution_aspects(state: BotState) -> bool:
             counts = {}
         return panel, window_base_coords, counts, {name for _, name in panel}
 
-    panel, window_base_coords, counts, owned = scan()
+    panel, window_base_coords, counts, owned = scan(expect=prev_owned)
 
     plan = compute_craft_plan(needed, owned, counts)
     if plan is None:
@@ -275,7 +294,7 @@ def ensure_solution_aspects(state: BotState) -> bool:
     stale = False
     for aspect in plan:
         if stale:
-            panel, window_base_coords, counts, owned = scan()
+            panel, window_base_coords, counts, owned = scan(expect=owned)
             stale = False
         parent_a, parent_b = aspect_parents[aspect]
         log.info("Crafting %s (%s + %s)", aspect, parent_a, parent_b)
@@ -289,7 +308,7 @@ def ensure_solution_aspects(state: BotState) -> bool:
             stale = True
 
     # Hand placement a current panel and confirm the plan worked.
-    panel, window_base_coords, counts, owned = scan()
+    panel, window_base_coords, counts, owned = scan(expect=owned | set(needed))
     still_missing = [a for a in needed if a not in owned]
     if still_missing:
         log.error("Crafting finished but aspects are still missing: %s", ", ".join(still_missing))

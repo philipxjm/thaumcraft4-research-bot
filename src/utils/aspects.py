@@ -215,50 +215,72 @@ def calculate_cost_of_aspect_path(path: List[str]) -> int:
 
 
 def update_costs_from_inventory(inventory_counts: dict[str, int],
-                                scarcity_weight: int = 30) -> None:
-    """Recompute ``aspect_costs`` so scarce aspects cost more.
+                                owned_aspects: set[str] | None = None,
+                                scarcity_weight: int = 30,
+                                craft_step_cost: int = 5) -> None:
+    """Recompute ``aspect_costs`` from what using one unit actually costs.
 
-    Each aspect's base cost becomes ``ceil(scarcity_weight / count)`` (floored
-    at 1). Aspects absent from ``inventory_counts`` keep their defaults.
-    Compound aspects are then recomputed as the sum of their parents' costs,
-    so routing through a scarce compound is at least as expensive as routing
-    through its primal decomposition. Explicit `aspect_cost_overrides` in
-    config.toml still win.
+    Using an aspect either consumes stock or forces a craft, so its cost is
+    the cheaper of the two:
 
-    Re-sorts ``aspect_graph`` neighbour lists by new cost, and clears the
-    element-path cache. Call once per board, BEFORE invoking the solver.
+    - stock cost: ``ceil(scarcity_weight / count)``, floored at 1 - abundant
+      aspects are cheap, near-empty ones expensive. Owned but with an
+      unreadable count counts as abundant.
+    - craft cost: ``craft_step_cost + cost(parentA) + cost(parentB)`` - every
+      crafting step has a price, so chains prefer owned aspects, then shallow
+      crafts, then deep crafting trees. Primals can't be crafted; an unowned
+      primal gets a prohibitive cost since it can't be placed at all.
+
+    Explicit ``aspect_cost_overrides`` from config.toml still win. Re-sorts
+    ``aspect_graph`` neighbour lists by new cost and clears the element-path
+    cache. Call once per board, BEFORE invoking the solver.
     """
     import math
     config_overrides = {
         k.lower(): v for k, v in get_global_config().aspect_cost_overrides.items()
     }
+    owned = set(owned_aspects) if owned_aspects is not None else set(inventory_counts.keys())
 
-    new_costs: dict[str, int] = dict(config_overrides)
-    for aspect, parents in aspect_parents.items():
-        if parents == (None, None) and aspect not in new_costs:
-            count = inventory_counts.get(aspect)
-            if count is None or count <= 0:
-                new_costs[aspect] = 1
-            else:
-                new_costs[aspect] = max(1, math.ceil(scarcity_weight / count))
-
-    remaining = set(aspect_parents.keys()) - set(new_costs.keys())
+    new_costs: dict[str, int] = {}
+    remaining = set(aspect_parents.keys())
     while remaining:
         progress = False
         for aspect in list(remaining):
-            parents = aspect_parents[aspect]
-            if all(p in new_costs for p in parents if p is not None):
-                summed = sum(new_costs[p] for p in parents if p is not None)
+            parent_a, parent_b = aspect_parents[aspect]
+            if parent_a is not None and (parent_a in remaining or parent_b in remaining):
+                continue
+
+            stock_cost = None
+            if aspect in owned:
                 count = inventory_counts.get(aspect)
                 if count is not None and count > 0:
-                    scarce = max(1, math.ceil(scarcity_weight / count))
-                    new_costs[aspect] = max(summed, scarce)
+                    stock_cost = max(1, math.ceil(scarcity_weight / count))
                 else:
-                    new_costs[aspect] = summed
-                remaining.remove(aspect)
-                progress = True
+                    stock_cost = 1
+
+            craft_cost = None
+            if parent_a is not None:
+                craft_cost = craft_step_cost + new_costs[parent_a] + new_costs[parent_b]
+
+            if aspect in config_overrides:
+                cost = config_overrides[aspect]
+            elif stock_cost is not None and craft_cost is not None:
+                cost = min(stock_cost, craft_cost)
+            elif stock_cost is not None:
+                cost = stock_cost
+            elif craft_cost is not None:
+                cost = craft_cost
+            else:
+                # Unowned primal: can't be crafted or placed - steer far away.
+                cost = 999
+
+            new_costs[aspect] = cost
+            remaining.remove(aspect)
+            progress = True
         if not progress:
             log.error("Cannot update costs: unresolved %s", remaining)
+            for aspect in remaining:
+                new_costs.setdefault(aspect, 999)
             break
 
     aspect_costs.clear()
