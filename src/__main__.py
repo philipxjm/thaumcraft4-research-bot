@@ -70,6 +70,14 @@ def solve_board(config: Config, state: BotState, test_mode: bool = False):
         state.inventory_aspects = analyze_image_inventory(image, pixels)
     elif state.inventory_aspects is None:
         state.inventory_aspects, needs_image_retake = find_and_create_inventory_aspects(image, pixels, window_base_coords)
+        log.info(
+            "Inventory map (%d aspects): %s",
+            len(state.inventory_aspects),
+            ", ".join(
+                f"{name}@{(box[0] + box[2]) // 2},{(box[1] + box[3]) // 2}"
+                for box, name in state.inventory_aspects
+            ),
+        )
         # TODO: scuffed!
         if needs_image_retake:
             image, window_base_coords = setup_image(
@@ -183,10 +191,17 @@ def verify_and_repair_placement(state: BotState, attempts: int = 2):
             log.info("Placement verified: all %d aspects landed", len(planned))
             return
         if attempt == attempts:
+            # Include where each failing aspect was dragged from: a persistent
+            # failure for one aspect usually means its inventory-panel slot was
+            # misidentified, and the source box shows it directly.
+            sources = []
+            for c, a in missing:
+                box = next((loc for loc, name in state.inventory_aspects if name == a), None)
+                sources.append(f"{a}@{c[0]},{c[1]} (panel source: {box})")
             log.error(
                 "Placement still incomplete after %d repair attempts: %s",
                 attempts,
-                ", ".join(f"{a}@{c[0]},{c[1]}" for c, a in missing),
+                "; ".join(sources),
             )
             return
 
@@ -370,6 +385,19 @@ def group_hexagons(empty_hexagons, board_aspects, image_height):
     for _, coords in grouped_items:
         # Sort rows by y
         coords.sort(key=lambda c: c[1])
+
+        # A placed aspect is drawn smaller than the hex, so part of the
+        # empty-hex ring stays visible and the same cell can be detected as
+        # both "Free" and an aspect a pixel apart (breaks post-placement
+        # re-parsing). Merge near-duplicates, the aspect wins.
+        deduped = []
+        for entry in coords:
+            if deduped and abs(entry[1] - deduped[-1][1]) < 10:
+                if deduped[-1][2] == "Free" and entry[2] != "Free":
+                    deduped[-1] = entry
+                continue
+            deduped.append(entry)
+        coords = deduped
 
         if len(coords) == 1:
             column = [coords[0]]

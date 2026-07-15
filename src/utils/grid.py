@@ -11,6 +11,8 @@ from ..utils.aspects import aspect_costs, aspect_graph, find_cheapest_element_pa
 from ..utils.log import log
 
 type Coordinate = Tuple[int, int]
+
+_relaxed_logged = False
 # (min_x, min_y, max_x, max_y), aspect_name
 type OnscreenAspect = Tuple[Tuple[int, int, int, int], str]
 
@@ -352,7 +354,12 @@ class HexGrid:
         # only requires the chains to link - unrelated adjacent aspects are
         # legal. Dense boards often have no fully-compatible layout at all.
         if not paths:
-            log.info("No fully-compatible layout found; relaxing adjacency rules for this search")
+            global _relaxed_logged
+            if not _relaxed_logged:
+                _relaxed_logged = True
+                log.info("No fully-compatible layout found for some paths; relaxing adjacency rules where needed (logged once)")
+            else:
+                log.debug("Relaxing adjacency rules for this search")
             extra = 0
             while not paths and extra <= 4:
                 longer = [length + extra for length in lengths]
