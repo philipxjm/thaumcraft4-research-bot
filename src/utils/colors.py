@@ -42,7 +42,7 @@ aspect_colors = {
     "venenum": "89F000",
     "vacuos": "888888",
     "lux": "FFF663",
-    "tempestas": "FFFFFF",
+    "tempestas": "00A0FF",
     "vinculum": "9A8080",
     "volatus": "E7E7D7",
     "praecantatio": "9700C0",
