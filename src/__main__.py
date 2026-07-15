@@ -336,11 +336,29 @@ def verify_and_repair_placement(state: BotState, attempts: int = 2):
             image.save(f"debug_verify_{attempt}.png")
         except OSError:
             pass
+        pixels = image.load()
+
+        # Compare in PIXEL space against the solve-time grid. Re-parsing into
+        # grid indices is NOT safe here: placed icons knock cells out of the
+        # parse, whole columns disappear, and the fresh grid's index space
+        # shifts relative to the plan - index-based repairs then drop aspects
+        # onto physically different cells.
         try:
-            grid = generate_hexgrid_from_image(image, image.load())
+            board = find_frame(image, (150, 123, 123))
         except Exception:
-            log.exception("Could not re-parse the board to verify placement; skipping verification")
+            log.exception("Could not find the board frame to verify placement; skipping verification")
             return
+        found_aspects = find_aspects_in_frame(board, pixels, image=image)
+        empty_dots = find_squares_in_frame(board, pixels, (195, 195, 195), image=image)
+
+        def at_pixel(px, py):
+            for (bx0, by0, bx1, by1), name in found_aspects:
+                if bx0 - 6 <= px <= bx1 + 6 and by0 - 6 <= py <= by1 + 6:
+                    return name
+            for ex, ey in empty_dots:
+                if abs(ex - px) < 26 and abs(ey - py) < 26:
+                    return "Free"
+            return "Missing"
 
         # Free = definitely empty (the drag missed) -> re-drag those.
         # Missing = the cell couldn't be read at all: placed icons routinely
@@ -349,7 +367,8 @@ def verify_and_repair_placement(state: BotState, attempts: int = 2):
         # the bot running again. Report them, don't touch them.
         empty, unreadable, mismatched = [], [], []
         for coord, aspect in planned.items():
-            actual = grid.grid.get(coord, ("Missing", None))[0]
+            px, py = state.solved.get_pixel_location(coord)
+            actual = at_pixel(px, py)
             if actual == aspect:
                 continue
             if actual == "Free":
@@ -404,7 +423,9 @@ def verify_and_repair_placement(state: BotState, attempts: int = 2):
             ", ".join(f"{a}@{c[0]},{c[1]}" for c, a in empty),
         )
         for coord, aspect in empty:
-            place_aspect_at(window_base_coords, state.inventory_aspects, grid, aspect, coord)
+            # Always drag to the solve-time grid's pixel position - it is the
+            # coordinate space the plan lives in.
+            place_aspect_at(window_base_coords, state.inventory_aspects, state.solved, aspect, coord)
 
 
 def console_mode(config: Config):
