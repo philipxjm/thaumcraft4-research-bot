@@ -331,9 +331,20 @@ def verify_and_repair_placement(state: BotState, attempts: int = 2):
 
         if not empty:
             confirmed = len(planned) - len(unreadable) - len(mismatched)
-            if unreadable or mismatched:
+            if (len(unreadable) + len(mismatched)) * 2 >= len(planned):
+                # The completed-research signature: the game fades placed
+                # aspects to ghosts and removes the hex grid, so most cells
+                # read as unreadable (and faded colors can land on another
+                # aspect's value, showing up as mismatches). A failed board
+                # stays crisp and readable.
                 log.info(
-                    "Placement check: %d/%d confirmed, %d unreadable (placed icons often defeat the parser - almost certainly fine), %d mismatched. debug_verify_%d.png shows the board.",
+                    "Board reads as faded - the research most likely COMPLETED. "
+                    "(%d/%d cells unreadable/mismatched is expected on a finished board; debug_verify_%d.png)",
+                    len(unreadable) + len(mismatched), len(planned), attempt,
+                )
+            elif unreadable or mismatched:
+                log.info(
+                    "Placement check: %d/%d confirmed, %d unreadable, %d mismatched. debug_verify_%d.png shows the board.",
                     confirmed, len(planned), len(unreadable), len(mismatched), attempt,
                 )
             else:
