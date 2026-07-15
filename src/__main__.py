@@ -226,8 +226,17 @@ def compute_craft_plan(needed, owned: set, counts: dict) -> list[str] | None:
             return True
         parent_a, parent_b = aspect_parents[aspect]
         if parent_a is None or parent_b is None:
-            log.error("Primal aspect %s has run out (need %d more) - cannot craft it", aspect, shortfall)
-            return False
+            # A primal reading as short is more often a misread count than a
+            # real shortage (one board aborted over perditio "running out" at
+            # an actual stock of ~747). Warn and attempt anyway: a drag from a
+            # genuinely empty slot does nothing, and the post-craft
+            # confirmation scan is the authoritative check.
+            log.warning(
+                "Primal %s reads as short by %d (count OCR says %s) - proceeding anyway; "
+                "if it really is empty, the craft will fail visibly",
+                aspect, shortfall, counts.get(aspect),
+            )
+            return True
         for _ in range(shortfall):
             if not acquire(parent_a, 1, depth + 1) or not acquire(parent_b, 1, depth + 1):
                 return False

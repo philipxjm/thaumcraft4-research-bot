@@ -80,7 +80,8 @@ def draw_placing_hints(
             (loc for loc, name in inventory_aspects if name == aspect), None
         )
         if inventory_location is None:
-            print("Could not find aspect", aspect, "in", inventory_aspects)
+            # Path endpoints are givens already on the board; they have no
+            # panel slot to draw a hint line from, which is fine.
             continue
 
         inv_img_x, inv_img_y = get_center_of_box(inventory_location)
