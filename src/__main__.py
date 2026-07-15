@@ -309,9 +309,11 @@ def verify_and_repair_placement(state: BotState, attempts: int = 2):
             log.exception("Could not re-parse the board to verify placement; skipping verification")
             return
 
-        # Free = definitely empty. Missing = the cell couldn't be read at all
-        # (placed icons often defeat the parser); dropping onto an occupied
-        # hex is harmless in the game, so re-drag both kinds.
+        # Free = definitely empty (the drag missed) -> re-drag those.
+        # Missing = the cell couldn't be read at all: placed icons routinely
+        # defeat the parser, so these have almost always landed fine -
+        # re-dragging them just replays the whole placement and looks like
+        # the bot running again. Report them, don't touch them.
         empty, unreadable, mismatched = [], [], []
         for coord, aspect in planned.items():
             actual = grid.grid.get(coord, ("Missing", None))[0]
@@ -327,11 +329,12 @@ def verify_and_repair_placement(state: BotState, attempts: int = 2):
         for coord, aspect, actual in mismatched:
             log.warning("Cell %s,%s: planned %s but found %s", coord[0], coord[1], aspect, actual)
 
-        if not empty and not unreadable:
-            if mismatched:
-                log.warning(
-                    "Placement check done: %d/%d cells confirmed, %d hold unexpected aspects (see warnings; debug_verify_%d.png shows the board)",
-                    len(planned) - len(mismatched), len(planned), len(mismatched), attempt,
+        if not empty:
+            confirmed = len(planned) - len(unreadable) - len(mismatched)
+            if unreadable or mismatched:
+                log.info(
+                    "Placement check: %d/%d confirmed, %d unreadable (placed icons often defeat the parser - almost certainly fine), %d mismatched. debug_verify_%d.png shows the board.",
+                    confirmed, len(planned), len(unreadable), len(mismatched), attempt,
                 )
             else:
                 log.info("Placement verified: all %d aspects landed", len(planned))
@@ -342,26 +345,22 @@ def verify_and_repair_placement(state: BotState, attempts: int = 2):
             # failure for one aspect usually means its inventory-panel slot was
             # misidentified, and the source box shows it directly.
             sources = []
-            for c, a in empty + unreadable:
+            for c, a in empty:
                 box = next((loc for loc, name in state.inventory_aspects if name == a), None)
                 sources.append(f"{a}@{c[0]},{c[1]} (panel source: {box})")
             log.warning(
-                "Placement unconfirmed after %d repair attempts - %d empty, %d unreadable, %d mismatched of %d planned: %s (see debug_verify_%d.png)",
-                attempts, len(empty), len(unreadable), len(mismatched), len(planned),
-                "; ".join(sources), attempt,
+                "Placement incomplete after %d repair attempts - %d cells still empty: %s (plus %d unreadable, %d mismatched; see debug_verify_%d.png)",
+                attempts, len(empty), "; ".join(sources), len(unreadable), len(mismatched), attempt,
             )
             return
 
-        to_place = empty + unreadable
         log.info(
-            "Re-dragging %d unconfirmed aspect(s) (%d empty, %d unreadable): %s",
-            len(to_place), len(empty), len(unreadable),
-            ", ".join(f"{a}@{c[0]},{c[1]}" for c, a in to_place),
+            "Re-dragging %d aspect(s) whose cells are still empty: %s",
+            len(empty),
+            ", ".join(f"{a}@{c[0]},{c[1]}" for c, a in empty),
         )
-        for coord, aspect in to_place:
-            # Unreadable cells are absent from the fresh parse, so take pixel
-            # positions from the solve-time grid (window geometry unchanged).
-            place_aspect_at(window_base_coords, state.inventory_aspects, state.solved, aspect, coord)
+        for coord, aspect in empty:
+            place_aspect_at(window_base_coords, state.inventory_aspects, grid, aspect, coord)
 
 
 def console_mode(config: Config):
