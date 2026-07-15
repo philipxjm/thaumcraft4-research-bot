@@ -79,6 +79,13 @@ def solve_board(config: Config, state: BotState, test_mode: bool = False):
 
     grid = generate_hexgrid_from_image(image, pixels)
 
+    givens = [(c, a) for c, (a, _) in grid.grid.items() if a not in ("Free", "Missing")]
+    log.info(
+        "Parsed %d given aspects: %s",
+        len(givens),
+        ", ".join(f"{a}@{c[0]},{c[1]}" for c, a in givens),
+    )
+
     save_input_image(image, grid)
 
     # OCR inventory counts and re-weight solver costs so scarce aspects
@@ -110,6 +117,23 @@ def solve_board(config: Config, state: BotState, test_mode: bool = False):
     draw_board_coords(solved, draw)
 
     image.save("debug_render.png")
+
+    # Log the plan: exactly which aspects go on which cells. A "solved but
+    # wrong in-game" report plus these lines pinpoints whether a chain link
+    # or a placement is at fault.
+    for i, path in enumerate(solved.applied_paths):
+        log.info("path %d: %s", i, " -> ".join(f"{el}@{c[0]},{c[1]}" for el, c in path))
+    if state.inventory_aspects is not None:
+        owned = {name for _, name in state.inventory_aspects}
+        given_names = {a for _, a in givens}
+        needed = {el for path in solved.applied_paths for el, _ in path}
+        unowned = needed - owned - given_names
+        if unowned:
+            log.warning(
+                "Solution needs aspects not visible in your inventory: %s - "
+                "crafting them is experimental and may fail silently",
+                ", ".join(sorted(unowned)),
+            )
 
     state.window_base_coords = window_base_coords
     state.solved = solved
