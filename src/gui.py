@@ -13,6 +13,7 @@ import logging
 import queue
 import sys
 import threading
+import time
 import traceback
 import tkinter as tk
 from tkinter import scrolledtext
@@ -69,6 +70,9 @@ def run_gui(solve_and_place, retry_place, hotkey=None):
     retry_btn = tk.Button(top, text="Retry placement", width=16, state=tk.DISABLED)
     solve_btn.pack(side=tk.LEFT)
     retry_btn.pack(side=tk.LEFT, padx=(8, 0))
+    hotkey_enabled = tk.BooleanVar(value=True)
+    if hotkey:
+        tk.Checkbutton(top, text=f"Hotkey {hotkey}", variable=hotkey_enabled).pack(side=tk.LEFT, padx=(12, 0))
 
     tk.Label(root, textvariable=status_var, anchor="w").pack(fill=tk.X, padx=8)
 
@@ -84,6 +88,12 @@ def run_gui(solve_and_place, retry_place, hotkey=None):
     busy = threading.Event()
     hotkey_fired = threading.Event()
     has_solution = threading.Event()
+    # The global hotkey hook fires regardless of focus and repeats while the
+    # keys are held, so unrelated ctrl+r-ish presses (NEI recipe lookups...)
+    # would queue surprise solves. Ignore triggers too soon after the last
+    # run; the checkbox disables the hook entirely.
+    last_finish = [0.0]
+    HOTKEY_COOLDOWN_S = 2.0
 
     def append_log(text):
         log_box.config(state=tk.NORMAL)
@@ -119,6 +129,7 @@ def run_gui(solve_and_place, retry_place, hotkey=None):
                     status_var.set(done_text)
                 else:
                     status_var.set("Error - see log below. Fix the cause and press Solve again.")
+                last_finish[0] = time.monotonic()
                 busy.clear()
                 set_buttons(True)
 
@@ -128,7 +139,8 @@ def run_gui(solve_and_place, retry_place, hotkey=None):
 
         threading.Thread(target=work, daemon=True).start()
 
-    def on_solve():
+    def on_solve(source="button"):
+        print(f"Solve triggered ({source})")
         run_in_thread(
             solve_and_place,
             "Solving board...",
@@ -166,7 +178,12 @@ def run_gui(solve_and_place, retry_place, hotkey=None):
                 break
         if hotkey_fired.is_set():
             hotkey_fired.clear()
-            on_solve()
+            if (
+                hotkey_enabled.get()
+                and not busy.is_set()
+                and time.monotonic() - last_finish[0] > HOTKEY_COOLDOWN_S
+            ):
+                on_solve(source="hotkey")
         root.after(50, poll)
 
     root.after(50, poll)
