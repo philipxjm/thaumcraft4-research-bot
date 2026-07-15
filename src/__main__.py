@@ -183,26 +183,52 @@ def place_solution(state: BotState):
     verify_and_repair_placement(state)
 
 
-def find_craftable_ancestor(target: str, owned: set, counts: dict, depth: int = 0) -> str | None:
-    """Walks down the aspect's parent tree to the first thing that can be
-    crafted right now (both parents present, and count >= 1 where known)."""
-    if depth > 12:
-        return None
-    parent_a, parent_b = aspect_parents[target]
-    if parent_a is None or parent_b is None:
-        # A primal can't be crafted; the player has run out of it.
-        return None
-    for parent in (parent_a, parent_b):
-        if parent not in owned or counts.get(parent, 999) < 1:
-            return find_craftable_ancestor(parent, owned, counts, depth + 1)
-    return target
+def compute_craft_plan(needed, owned: set, counts: dict) -> list[str] | None:
+    """Derives the full craft sequence from a single inventory snapshot.
+
+    Walks each needed aspect's parent tree, reserving stock (known OCR counts;
+    aspects that are visible but unreadable count as plentiful; absent = 0)
+    and appending a craft for every shortfall, parents before children.
+    Returns None when a primal has run out - those can't be crafted.
+    """
+    stock = dict(counts)
+    for aspect in owned:
+        stock.setdefault(aspect, 999)
+
+    plan: list[str] = []
+
+    def acquire(aspect: str, qty: int, depth: int = 0) -> bool:
+        if depth > 12:
+            return False
+        have = stock.get(aspect, 0)
+        take = min(have, qty)
+        stock[aspect] = have - take
+        shortfall = qty - take
+        if shortfall == 0:
+            return True
+        parent_a, parent_b = aspect_parents[aspect]
+        if parent_a is None or parent_b is None:
+            log.error("Primal aspect %s has run out (need %d more) - cannot craft it", aspect, shortfall)
+            return False
+        for _ in range(shortfall):
+            if not acquire(parent_a, 1, depth + 1) or not acquire(parent_b, 1, depth + 1):
+                return False
+            plan.append(aspect)
+        return True
+
+    for aspect, amount in needed.items():
+        if not acquire(aspect, amount):
+            return None
+    return plan
 
 
 def ensure_solution_aspects(state: BotState) -> bool:
-    """Crafts whatever the current solution needs before placing: right
-    aspect kinds present, and (where the count OCR could read them) in
-    sufficient quantity. Re-screenshots after every craft because a newly
-    appearing aspect reflows the panel positions."""
+    """Crafts what the current solution needs before placing, planned entirely
+    from one inventory snapshot. The panel is only re-scanned when a craft
+    introduces a NEW aspect kind (the panel reflows to insert its slot,
+    shifting later positions - same reason a kind vanishing at count 0 makes
+    session-cached positions stale, which is why the snapshot here is fresh),
+    plus once at the end so placement drags from current positions."""
     from collections import Counter
     import numpy as np
 
@@ -211,7 +237,7 @@ def ensure_solution_aspects(state: BotState) -> bool:
         for aspect, _ in path[1:-1]:
             needed[aspect] += 1
 
-    for _ in range(24):
+    def scan():
         image, window_base_coords = setup_image(False, True)
         panel = dedupe_inventory_aspects(analyze_image_inventory(image, image.load()))
         state.inventory_aspects = panel
@@ -220,35 +246,41 @@ def ensure_solution_aspects(state: BotState) -> bool:
             counts = ocr_all_counts(np.array(image), panel)
         except Exception:
             counts = {}
-        owned = {name for _, name in panel}
+        return panel, window_base_coords, counts, {name for _, name in panel}
 
-        target = None
-        for aspect, amount in needed.items():
-            if aspect not in owned:
-                target = aspect
-                break
-            known = counts.get(aspect)
-            if known is not None and known < amount:
-                target = aspect
-                break
-        if target is None:
-            return True
+    panel, window_base_coords, counts, owned = scan()
 
-        craftable = find_craftable_ancestor(target, owned, counts)
-        if craftable is None:
-            log.error(
-                "Cannot craft %s: a primal ingredient has run out (parents: %s)",
-                target, aspect_parents[target],
-            )
-            return False
-        parent_a, parent_b = aspect_parents[craftable]
-        log.info("Crafting %s (%s + %s) toward %s", craftable, parent_a, parent_b, target)
-        if not craft_inventory_aspect(window_base_coords, panel, craftable):
+    plan = compute_craft_plan(needed, owned, counts)
+    if plan is None:
+        return False
+    if not plan:
+        return True
+
+    log.info("Craft plan (%d crafts): %s", len(plan), " -> ".join(plan))
+
+    stale = False
+    for aspect in plan:
+        if stale:
+            panel, window_base_coords, counts, owned = scan()
+            stale = False
+        parent_a, parent_b = aspect_parents[aspect]
+        log.info("Crafting %s (%s + %s)", aspect, parent_a, parent_b)
+        if not craft_inventory_aspect(window_base_coords, panel, aspect):
             return False
         sleep(0.4)
+        if aspect not in owned:
+            # First of its kind: the panel inserts a slot and later positions
+            # shift, so the next craft needs fresh coordinates.
+            owned.add(aspect)
+            stale = True
 
-    log.error("Aspect crafting did not converge after 24 crafts; aborting placement")
-    return False
+    # Hand placement a current panel and confirm the plan worked.
+    panel, window_base_coords, counts, owned = scan()
+    still_missing = [a for a in needed if a not in owned]
+    if still_missing:
+        log.error("Crafting finished but aspects are still missing: %s", ", ".join(still_missing))
+        return False
+    return True
 
 
 def verify_and_repair_placement(state: BotState, attempts: int = 2):
