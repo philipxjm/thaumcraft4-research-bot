@@ -1,8 +1,26 @@
 from typing import Set, Tuple, List
 import numpy as np
 
-from ..utils.colors import rgb_to_aspect
+from ..utils.colors import rgb_to_aspect, rgb_to_aspect_map
 from ..utils.log import log
+
+# All aspect colors packed as ints for vectorized matching.
+_ASPECT_COLOR_INTS = np.array(
+    [(r << 16) | (g << 8) | b for (r, g, b) in rgb_to_aspect_map.keys()], dtype=np.int32
+)
+
+
+def _candidate_points(image, frame, color_ints):
+    """Row-major (y, then x) coordinates of frame pixels whose exact color is
+    in color_ints. Scanning every pixel in Python costs ~0.3-0.7s per frame at
+    4K; this numpy pass finds the handful of matching pixels in ~10ms, and the
+    flood fill then only ever walks actual icon regions."""
+    min_x, min_y, max_x, max_y = frame
+    arr = np.asarray(image if image.mode == "RGB" else image.convert("RGB"), dtype=np.uint8)
+    sub = arr[min_y:max_y + 1, min_x:max_x + 1]
+    enc = (sub[:, :, 0].astype(np.int32) << 16) | (sub[:, :, 1].astype(np.int32) << 8) | sub[:, :, 2]
+    ys, xs = np.nonzero(np.isin(enc, color_ints))
+    return xs + min_x, ys + min_y
 
 # Function to check if there are consecutive pixels of the same color in a direction
 def has_consecutive_pixels(image, pixels, x, y, dx, dy):
@@ -90,15 +108,24 @@ def find_frame_fast(image, target_color):
     return (min_x, min_y, max_x, max_y)
 
 def find_aspects_in_frame(
-    frame: Tuple[int, int, int, int], pixels
+    frame: Tuple[int, int, int, int], pixels, image=None
 ) -> List[Tuple[Tuple[int, int, int, int], str]]:
     min_x, min_y, max_x, max_y = frame
     frame_bounds = (min_x, min_y, max_x, max_y)
     visited = set()
     found_aspects = []
 
-    for y in range(min_y, max_y + 1):
-        for x in range(min_x, max_x + 1):
+    if image is not None:
+        xs, ys = _candidate_points(image, frame, _ASPECT_COLOR_INTS)
+        points = zip(xs.tolist(), ys.tolist())
+    else:
+        points = (
+            (x, y)
+            for y in range(min_y, max_y + 1)
+            for x in range(min_x, max_x + 1)
+        )
+
+    for x, y in points:
             if (x, y) in visited:
                 continue
             color = pixels[x, y]
@@ -170,13 +197,24 @@ def flood_fill(
 
 
 def find_squares_in_frame(
-    frame: Tuple[int, int, int, int], pixels, target_color: Tuple[int, int, int]
+    frame: Tuple[int, int, int, int], pixels, target_color: Tuple[int, int, int], image=None
 ) -> List[Tuple[int, int]]:
     min_x, min_y, max_x, max_y = frame
     squares_bounding_boxes = []
 
-    for y in range(min_y, max_y + 1):
-        for x in range(min_x, max_x + 1):
+    if image is not None:
+        r, g, b = target_color
+        color_ints = np.array([(r << 16) | (g << 8) | b], dtype=np.int32)
+        xs, ys = _candidate_points(image, frame, color_ints)
+        points = zip(xs.tolist(), ys.tolist())
+    else:
+        points = (
+            (x, y)
+            for y in range(min_y, max_y + 1)
+            for x in range(min_x, max_x + 1)
+        )
+
+    for x, y in points:
             if pixels[x, y] != target_color:
                 continue
 

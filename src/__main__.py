@@ -84,11 +84,13 @@ class BotState:
 def solve_board(config: Config, state: BotState, test_mode: bool = False):
     """One full board cycle: screenshot, parse, OCR counts, solve, render the
     debug image. Placement is separate (place_solution) so the GUI can retry."""
+    t_start = time.time()
     image, window_base_coords = setup_image(
         test_mode, state.inventory_aspects is not None
     )
 
     pixels = image.load()
+    t_shot = time.time()
 
     if test_mode:
         state.inventory_aspects = dedupe_inventory_aspects(analyze_image_inventory(image, pixels))
@@ -110,7 +112,9 @@ def solve_board(config: Config, state: BotState, test_mode: bool = False):
             )
             pixels = image.load()
 
+    t_inv = time.time()
     grid = generate_hexgrid_from_image(image, pixels)
+    t_parse = time.time()
 
     givens = [(c, a) for c, (a, _) in grid.grid.items() if a not in ("Free", "Missing")]
     log.info(
@@ -131,6 +135,11 @@ def solve_board(config: Config, state: BotState, test_mode: bool = False):
         update_costs_from_inventory(counts)
     except Exception:
         log.exception("Inventory OCR failed; proceeding with default costs")
+    t_ocr = time.time()
+    log.info(
+        "timings: screenshot %.2fs, inventory %.2fs, board-parse %.2fs, ocr %.2fs",
+        t_shot - t_start, t_inv - t_shot, t_parse - t_inv, t_ocr - t_parse,
+    )
 
     draw = ImageDraw.Draw(image)
     try:
@@ -174,13 +183,18 @@ def solve_board(config: Config, state: BotState, test_mode: bool = False):
 
 
 def place_solution(state: BotState):
+    t0 = time.time()
     if not ensure_solution_aspects(state):
         raise Exception(
             "Could not craft all aspects this solution needs - see the log above "
             "for which craft failed. Craft them manually and press Retry placement."
         )
+    t1 = time.time()
     place_all_aspects(state.window_base_coords, state.inventory_aspects, state.solved)
+    t2 = time.time()
     verify_and_repair_placement(state)
+    t3 = time.time()
+    log.info("timings: craft-check %.2fs, place %.2fs, verify %.2fs", t1 - t0, t2 - t1, t3 - t2)
 
 
 def compute_craft_plan(needed, owned: set, counts: dict) -> list[str] | None:
@@ -498,10 +512,10 @@ def analyze_image_board(image: PIL.Image.Image, pixels):
 
     board = find_frame(image, (150, 123, 123))
 
-    board_aspects = find_aspects_in_frame(board, pixels)
+    board_aspects = find_aspects_in_frame(board, pixels, image=image)
     log.debug("Aspects on board: %s", board_aspects)
 
-    empty_hexagons = find_squares_in_frame(board, pixels, (195, 195, 195))
+    empty_hexagons = find_squares_in_frame(board, pixels, (195, 195, 195), image=image)
     log.debug("Empty spaces on board: %s", empty_hexagons)
 
     return board_aspects, empty_hexagons
@@ -513,8 +527,8 @@ def analyze_image_inventory(image: PIL.Image.Image, pixels):
 
     start_time = time.time()
     inventory_aspects = find_aspects_in_frame(
-        frame_aspects_left, pixels
-    ) + find_aspects_in_frame(frame_aspects_right, pixels)
+        frame_aspects_left, pixels, image=image
+    ) + find_aspects_in_frame(frame_aspects_right, pixels, image=image)
     end_time = time.time()
 
     log.info(f"Time taken to find inventory aspects: {end_time - start_time} seconds")
