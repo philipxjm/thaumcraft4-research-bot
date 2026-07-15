@@ -142,9 +142,24 @@ class RingSolver:
             if aspect != "Free" and aspect != "Missing"
         ]
 
+        import time as _time
+        first_solution_time = None
+
         done = False
         while not done:
             done = not self.do_solver_iteration()
+            if self.best_solution is not None:
+                if first_solution_time is None:
+                    first_solution_time = _time.monotonic()
+                elif _time.monotonic() - first_solution_time > 3.0:
+                    # A solution exists; further iterations only shave cost.
+                    # Chains are enumerated cheapest-first, so early solutions
+                    # are already near-optimal - cap the polishing time.
+                    log.info(
+                        "Stopping search after 3s of improvement time (best cost %s, %d iterations)",
+                        self.best_solution_cost, self.iteration_count,
+                    )
+                    break
 
         if self.best_solution is None:
             # Dump the parsed board so a failure report contains everything

@@ -190,7 +190,8 @@ class HexGrid:
         return found_paths
 
     def pathfind_board_lengths_to_many(
-        self, start: Coordinate, ends: List[Coordinate], n_list: List[int]
+        self, start: Coordinate, ends: List[Coordinate], n_list: List[int],
+        max_paths_per_end: int | None = None,
     ):
         # Depth 3 for: Different ends, Alternative Paths, Nodes in Path
         paths_many: List[List[List[Coordinate]]] = [[] for _ in ends]
@@ -201,13 +202,16 @@ class HexGrid:
 
         # Stack entries: (current_node, current_path)
         stack = [(start, [start])]
+        capped_ends = 0
 
         while stack:
             current_node, current_path = stack.pop()
 
-            # Check if we can reach any end from current position (pruning optimization)
+            # Check if we can reach any end that still wants paths (pruning)
             can_reach_any = False
             for i, end in enumerate(ends):
+                if max_paths_per_end is not None and len(paths_many[i]) >= max_paths_per_end:
+                    continue
                 distance = HexGrid.calculate_distance(current_node, end)
                 if distance <= n_list[i] - len(current_path):
                     can_reach_any = True
@@ -225,8 +229,16 @@ class HexGrid:
                 # Check if we've reached any end with correct length
                 if neighbor in end_to_info:
                     i, curr_n = end_to_info[neighbor]
-                    if len(new_path) == curr_n:
+                    if len(new_path) == curr_n and (
+                        max_paths_per_end is None or len(paths_many[i]) < max_paths_per_end
+                    ):
                         paths_many[i].append(list(new_path))
+                        if max_paths_per_end is not None and len(paths_many[i]) >= max_paths_per_end:
+                            capped_ends += 1
+                            if capped_ends == len(ends):
+                                # Every end has all the paths the caller will
+                                # look at; the rest of the DFS is wasted work.
+                                return paths_many
 
                 # Don't cross over non-free board spaces.
                 # Stepping on the occupied end space is allowed, but that is already checked above.
@@ -299,7 +311,10 @@ class HexGrid:
         end_aspects = [self.get_value(end) for end in ends]
         element_paths = find_cheapest_element_paths_many(self.get_value(start), end_aspects, lengths)
 
-        board_paths = self.pathfind_board_lengths_to_many(start, ends, lengths)
+        # Only the first board_variations paths per end are ever combined, so
+        # enumerating more is pure waste - and on open boards the full DFS
+        # finds thousands.
+        board_paths = self.pathfind_board_lengths_to_many(start, ends, lengths, max_paths_per_end=board_variations)
 
         valid_path_combinations: list[tuple[List[str], List[Coordinate]]] = []
         for i in range(len(lengths)):
