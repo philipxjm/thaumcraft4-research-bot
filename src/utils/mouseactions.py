@@ -2,6 +2,7 @@ import pyautogui as gui
 from time import sleep
 
 from .aspects import aspect_parents
+from .config import get_global_config
 from .finder import get_center_of_box
 from .grid import HexGrid, Coordinate, OnscreenAspect, SolvingHexGrid
 from .window import add_offset
@@ -11,14 +12,18 @@ def drag_mouse_from_to(window_base_coords: Coordinate, start: Coordinate, end: C
     start_x, start_y = add_offset(window_base_coords, start)
     end_x, end_y = add_offset(window_base_coords, end)
 
+    # Configurable pacing: on heavy clients (shaders, 4K) the game can sample
+    # the cursor a frame late, so instant teleport-drags sometimes miss.
+    delay = get_global_config().mouse_delay_ms / 1000.0
+
     gui.moveTo(start_x, start_y)
-    sleep(0.03)
+    sleep(delay)
     gui.mouseDown()
-    sleep(0.03)
-    gui.moveTo(end_x, end_y)
-    sleep(0.03)
+    sleep(delay)
+    gui.moveTo(end_x, end_y, duration=delay)
+    sleep(delay)
     gui.mouseUp()
-    sleep(0.03)
+    sleep(delay)
     gui.moveTo(window_base_coords + (10, 10))
 
 def place_all_aspects(window_base_coords: Coordinate, inventory_aspects: list[OnscreenAspect], solved: SolvingHexGrid):

@@ -15,6 +15,10 @@ DEFAULT_CONFIG = """
 game-window-title = "GT: New Horizons"
 # Global hotkey to process the next board (like pressing Enter in the console)
 next-board-hotkey = "ctrl+r"
+# Delay in milliseconds between mouse actions while dragging aspects.
+# Increase to 80-120 if aspects sometimes fail to land (heavy modpacks,
+# shaders, high resolutions).
+mouse-delay-ms = 30
 
 # List of aspects to disable (pretend they do not exist, like if their mod/addon is not installed)
 disabled-aspects = []
@@ -39,6 +43,7 @@ class Config:
     next_board_hotkey: str | None
     aspect_cost_overrides: dict[str, int]
     disabled_aspects: list[str]
+    mouse_delay_ms: int
 
 
 @cache
@@ -58,4 +63,5 @@ def get_global_config() -> Config:
         next_board_hotkey=config_data["general"].get("next-board-hotkey", None),
         aspect_cost_overrides=config_data.get("aspect-costs", {}),
         disabled_aspects=config_data["general"].get("disabled-aspects", []),
+        mouse_delay_ms=config_data["general"].get("mouse-delay-ms", 30),
     )

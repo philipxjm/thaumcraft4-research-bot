@@ -142,6 +142,61 @@ def solve_board(config: Config, state: BotState, test_mode: bool = False):
 
 def place_solution(state: BotState):
     place_all_aspects(state.window_base_coords, state.inventory_aspects, state.solved)
+    verify_and_repair_placement(state)
+
+
+def verify_and_repair_placement(state: BotState, attempts: int = 2):
+    """Re-screenshot the board and re-drag any planned aspect that didn't
+    land. Fast teleport-drags can miss on heavy clients: the game samples the
+    cursor a frame late and the aspect never leaves the inventory, leaving a
+    silent gap in a chain (placed aspects with no link between them)."""
+    planned = {}
+    for path in state.solved.applied_paths:
+        for aspect, coord in path[1:-1]:
+            planned[coord] = aspect
+
+    if not planned:
+        return
+
+    for attempt in range(attempts + 1):
+        sleep(0.4)
+        image, window_base_coords = setup_image(False, True)
+        try:
+            grid = generate_hexgrid_from_image(image, image.load())
+        except Exception:
+            log.exception("Could not re-parse the board to verify placement; skipping verification")
+            return
+
+        missing = []
+        for coord, aspect in planned.items():
+            actual = grid.grid.get(coord, ("Missing", None))[0]
+            if actual == aspect:
+                continue
+            if actual == "Free":
+                missing.append((coord, aspect))
+            else:
+                # A different aspect (or an unparseable cell) is there; we
+                # can't clear cells, so just surface it.
+                log.warning("Cell %s,%s: planned %s but found %s", coord[0], coord[1], aspect, actual)
+
+        if not missing:
+            log.info("Placement verified: all %d aspects landed", len(planned))
+            return
+        if attempt == attempts:
+            log.error(
+                "Placement still incomplete after %d repair attempts: %s",
+                attempts,
+                ", ".join(f"{a}@{c[0]},{c[1]}" for c, a in missing),
+            )
+            return
+
+        log.info(
+            "Re-placing %d aspect(s) that didn't land: %s",
+            len(missing),
+            ", ".join(f"{a}@{c[0]},{c[1]}" for c, a in missing),
+        )
+        for coord, aspect in missing:
+            place_aspect_at(window_base_coords, state.inventory_aspects, grid, aspect, coord)
 
 
 def console_mode(config: Config):
@@ -400,7 +455,17 @@ def find_and_create_inventory_aspects(
         )
 
     if len(missing_aspects) > 0:
-        text = input("Missing aspects from inventory! Should they be crafted automatically? [y/N]:")
+        if MODE == "console":
+            text = input("Missing aspects from inventory! Should they be crafted automatically? [y/N]:")
+        else:
+            # In GUI mode a console input() would hang the solve thread on a
+            # prompt nobody can see; fail with an actionable message instead.
+            raise Exception(
+                f"Your aspect inventory is missing {len(missing_aspects)} aspect(s): "
+                f"{', '.join(sorted(missing_aspects))}. Craft them manually in the "
+                "research table, or run the bot in console mode ('console' argument) "
+                "to use the experimental auto-crafting."
+            )
         if text.lower() == "y":
             needs_next_iteration = True
             while needs_next_iteration:
