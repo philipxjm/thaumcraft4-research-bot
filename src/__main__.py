@@ -174,8 +174,81 @@ def solve_board(config: Config, state: BotState, test_mode: bool = False):
 
 
 def place_solution(state: BotState):
+    if not ensure_solution_aspects(state):
+        raise Exception(
+            "Could not craft all aspects this solution needs - see the log above "
+            "for which craft failed. Craft them manually and press Retry placement."
+        )
     place_all_aspects(state.window_base_coords, state.inventory_aspects, state.solved)
     verify_and_repair_placement(state)
+
+
+def find_craftable_ancestor(target: str, owned: set, counts: dict, depth: int = 0) -> str | None:
+    """Walks down the aspect's parent tree to the first thing that can be
+    crafted right now (both parents present, and count >= 1 where known)."""
+    if depth > 12:
+        return None
+    parent_a, parent_b = aspect_parents[target]
+    if parent_a is None or parent_b is None:
+        # A primal can't be crafted; the player has run out of it.
+        return None
+    for parent in (parent_a, parent_b):
+        if parent not in owned or counts.get(parent, 999) < 1:
+            return find_craftable_ancestor(parent, owned, counts, depth + 1)
+    return target
+
+
+def ensure_solution_aspects(state: BotState) -> bool:
+    """Crafts whatever the current solution needs before placing: right
+    aspect kinds present, and (where the count OCR could read them) in
+    sufficient quantity. Re-screenshots after every craft because a newly
+    appearing aspect reflows the panel positions."""
+    from collections import Counter
+    import numpy as np
+
+    needed = Counter()
+    for path in state.solved.applied_paths:
+        for aspect, _ in path[1:-1]:
+            needed[aspect] += 1
+
+    for _ in range(24):
+        image, window_base_coords = setup_image(False, True)
+        panel = dedupe_inventory_aspects(analyze_image_inventory(image, image.load()))
+        state.inventory_aspects = panel
+        state.window_base_coords = window_base_coords
+        try:
+            counts = ocr_all_counts(np.array(image), panel)
+        except Exception:
+            counts = {}
+        owned = {name for _, name in panel}
+
+        target = None
+        for aspect, amount in needed.items():
+            if aspect not in owned:
+                target = aspect
+                break
+            known = counts.get(aspect)
+            if known is not None and known < amount:
+                target = aspect
+                break
+        if target is None:
+            return True
+
+        craftable = find_craftable_ancestor(target, owned, counts)
+        if craftable is None:
+            log.error(
+                "Cannot craft %s: a primal ingredient has run out (parents: %s)",
+                target, aspect_parents[target],
+            )
+            return False
+        parent_a, parent_b = aspect_parents[craftable]
+        log.info("Crafting %s (%s + %s) toward %s", craftable, parent_a, parent_b, target)
+        if not craft_inventory_aspect(window_base_coords, panel, craftable):
+            return False
+        sleep(0.4)
+
+    log.error("Aspect crafting did not converge after 24 crafts; aborting placement")
+    return False
 
 
 def verify_and_repair_placement(state: BotState, attempts: int = 2):
@@ -521,24 +594,24 @@ def find_and_create_inventory_aspects(
 
     missing_aspects = all_aspects - owned_aspects
 
-    for aspect in missing_aspects:
-        parent_a, parent_b = aspect_parents[aspect]
-        log.error(
-            f"Missing aspect {aspect} from inventory (made from {parent_a} + {parent_b})"
-        )
+    if MODE == "console":
+        for aspect in missing_aspects:
+            parent_a, parent_b = aspect_parents[aspect]
+            log.error(
+                f"Missing aspect {aspect} from inventory (made from {parent_a} + {parent_b})"
+            )
 
     if len(missing_aspects) > 0:
-        if MODE == "console":
-            text = input("Missing aspects from inventory! Should they be crafted automatically? [y/N]:")
-        else:
-            # In GUI mode a console input() would hang the solve thread on a
-            # prompt nobody can see; fail with an actionable message instead.
-            raise Exception(
-                f"Your aspect inventory is missing {len(missing_aspects)} aspect(s): "
-                f"{', '.join(sorted(missing_aspects))}. Craft them manually in the "
-                "research table, or run the bot in console mode ('console' argument) "
-                "to use the experimental auto-crafting."
+        if MODE != "console":
+            # GUI mode doesn't need the whole aspect catalog up front:
+            # place_solution crafts exactly what each solution needs, with
+            # quantities, right before placing.
+            log.info(
+                "Inventory is missing %d aspect kind(s) (will craft on demand): %s",
+                len(missing_aspects), ", ".join(sorted(missing_aspects)),
             )
+            return inventory_aspects, False
+        text = input("Missing aspects from inventory! Should they be crafted automatically? [y/N]:")
         if text.lower() == "y":
             needs_next_iteration = True
             while needs_next_iteration:
