@@ -52,6 +52,10 @@ def place_aspect_at(
     inv_img_pos = get_center_of_box(inventory_location)
     board_img_pos = grid.get_pixel_location(board_coord)
 
+    log.info(
+        "drag %s: panel px %s -> cell %s,%s at px %s",
+        aspect, inv_img_pos, board_coord[0], board_coord[1], board_img_pos,
+    )
     drag_mouse_from_to(window_base_coords, inv_img_pos, board_img_pos)
 
 def craft_missing_inventory_aspects(window_base_coords: Coordinate, inventory_aspects: list[OnscreenAspect], missing_aspects: set[str]) -> int:

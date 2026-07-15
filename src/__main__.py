@@ -47,6 +47,30 @@ def main():
     print("CacheInfo calculate distance", HexGrid.calculate_distance.cache_info())
     print("CacheInfo get neighbors", HexGrid.get_neighbors.cache_info())
 
+def dedupe_inventory_aspects(inventory_aspects: list[OnscreenAspect]) -> list[OnscreenAspect]:
+    """Keep only the largest detected region per aspect name.
+
+    White GUI text (aspect count digits) exactly matches tempestas' pure-white
+    color, so the panel scan yields several phantom 'tempestas' entries; the
+    real slot is always the biggest region. Placement grabs the first match,
+    so a phantom first = dragging from a text label = nothing picked up.
+    """
+    best: dict[str, OnscreenAspect] = {}
+    dropped = 0
+    for box, name in inventory_aspects:
+        area = (box[2] - box[0] + 1) * (box[3] - box[1] + 1)
+        if name in best:
+            dropped += 1
+            prev_box = best[name][0]
+            prev_area = (prev_box[2] - prev_box[0] + 1) * (prev_box[3] - prev_box[1] + 1)
+            if area <= prev_area:
+                continue
+        best[name] = (box, name)
+    if dropped:
+        log.info("Dropped %d duplicate inventory detections (GUI text matching aspect colors)", dropped)
+    return list(best.values())
+
+
 class BotState:
     """Carries what survives between boards: the inventory panel layout and
     the last solution (for retrying placement)."""
@@ -67,9 +91,10 @@ def solve_board(config: Config, state: BotState, test_mode: bool = False):
     pixels = image.load()
 
     if test_mode:
-        state.inventory_aspects = analyze_image_inventory(image, pixels)
+        state.inventory_aspects = dedupe_inventory_aspects(analyze_image_inventory(image, pixels))
     elif state.inventory_aspects is None:
         state.inventory_aspects, needs_image_retake = find_and_create_inventory_aspects(image, pixels, window_base_coords)
+        state.inventory_aspects = dedupe_inventory_aspects(state.inventory_aspects)
         log.info(
             "Inventory map (%d aspects): %s",
             len(state.inventory_aspects),
@@ -170,48 +195,68 @@ def verify_and_repair_placement(state: BotState, attempts: int = 2):
         sleep(0.4)
         image, window_base_coords = setup_image(False, True)
         try:
+            image.save(f"debug_verify_{attempt}.png")
+        except OSError:
+            pass
+        try:
             grid = generate_hexgrid_from_image(image, image.load())
         except Exception:
             log.exception("Could not re-parse the board to verify placement; skipping verification")
             return
 
-        missing = []
+        # Free = definitely empty. Missing = the cell couldn't be read at all
+        # (placed icons often defeat the parser); dropping onto an occupied
+        # hex is harmless in the game, so re-drag both kinds.
+        empty, unreadable, mismatched = [], [], []
         for coord, aspect in planned.items():
             actual = grid.grid.get(coord, ("Missing", None))[0]
             if actual == aspect:
                 continue
             if actual == "Free":
-                missing.append((coord, aspect))
+                empty.append((coord, aspect))
+            elif actual == "Missing":
+                unreadable.append((coord, aspect))
             else:
-                # A different aspect (or an unparseable cell) is there; we
-                # can't clear cells, so just surface it.
-                log.warning("Cell %s,%s: planned %s but found %s", coord[0], coord[1], aspect, actual)
+                mismatched.append((coord, aspect, actual))
 
-        if not missing:
-            log.info("Placement verified: all %d aspects landed", len(planned))
+        for coord, aspect, actual in mismatched:
+            log.warning("Cell %s,%s: planned %s but found %s", coord[0], coord[1], aspect, actual)
+
+        if not empty and not unreadable:
+            if mismatched:
+                log.warning(
+                    "Placement check done: %d/%d cells confirmed, %d hold unexpected aspects (see warnings; debug_verify_%d.png shows the board)",
+                    len(planned) - len(mismatched), len(planned), len(mismatched), attempt,
+                )
+            else:
+                log.info("Placement verified: all %d aspects landed", len(planned))
             return
+
         if attempt == attempts:
             # Include where each failing aspect was dragged from: a persistent
             # failure for one aspect usually means its inventory-panel slot was
             # misidentified, and the source box shows it directly.
             sources = []
-            for c, a in missing:
+            for c, a in empty + unreadable:
                 box = next((loc for loc, name in state.inventory_aspects if name == a), None)
                 sources.append(f"{a}@{c[0]},{c[1]} (panel source: {box})")
-            log.error(
-                "Placement still incomplete after %d repair attempts: %s",
-                attempts,
-                "; ".join(sources),
+            log.warning(
+                "Placement unconfirmed after %d repair attempts - %d empty, %d unreadable, %d mismatched of %d planned: %s (see debug_verify_%d.png)",
+                attempts, len(empty), len(unreadable), len(mismatched), len(planned),
+                "; ".join(sources), attempt,
             )
             return
 
+        to_place = empty + unreadable
         log.info(
-            "Re-placing %d aspect(s) that didn't land: %s",
-            len(missing),
-            ", ".join(f"{a}@{c[0]},{c[1]}" for c, a in missing),
+            "Re-dragging %d unconfirmed aspect(s) (%d empty, %d unreadable): %s",
+            len(to_place), len(empty), len(unreadable),
+            ", ".join(f"{a}@{c[0]},{c[1]}" for c, a in to_place),
         )
-        for coord, aspect in missing:
-            place_aspect_at(window_base_coords, state.inventory_aspects, grid, aspect, coord)
+        for coord, aspect in to_place:
+            # Unreadable cells are absent from the fresh parse, so take pixel
+            # positions from the solve-time grid (window geometry unchanged).
+            place_aspect_at(window_base_coords, state.inventory_aspects, state.solved, aspect, coord)
 
 
 def console_mode(config: Config):
