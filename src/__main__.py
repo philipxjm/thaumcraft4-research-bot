@@ -79,6 +79,9 @@ class BotState:
         self.inventory_aspects: list[OnscreenAspect] | None = None
         self.window_base_coords = None
         self.solved = None
+        # Last OCR'd counts - used to judge whether an aspect vanishing from
+        # the panel is plausible (it was nearly empty) or an animation artifact.
+        self.last_counts: dict[str, int] = {}
 
 
 def solve_board(config: Config, state: BotState, test_mode: bool = False):
@@ -132,6 +135,7 @@ def solve_board(config: Config, state: BotState, test_mode: bool = False):
         import numpy as np
         counts = ocr_all_counts(np.array(image), state.inventory_aspects)
         log.info("OCR'd %d aspect counts", len(counts))
+        state.last_counts = counts
         update_costs_from_inventory(counts, owned_aspects={n for _, n in state.inventory_aspects})
     except Exception:
         log.exception("Inventory OCR failed; proceeding with default costs")
@@ -253,25 +257,34 @@ def ensure_solution_aspects(state: BotState) -> bool:
 
     prev_owned = {name for _, name in state.inventory_aspects} if state.inventory_aspects else set()
 
-    def scan(expect=frozenset()):
+    def scan(expect=frozenset(), retry_all_lost=False):
         # Research-point orbs from a just-completed board fly across the
         # aspect panel and cover slots; a scan taken mid-animation "loses"
-        # aspects (once even a 945-stock primal). If anything we expect to
-        # own is missing, wait out the animation and re-shoot.
+        # aspects (once even a 945-stock primal). But aspects also genuinely
+        # vanish when they run out - the last OCR'd count tells the cases
+        # apart: rescan only for losses that are implausible given recent
+        # stock, accept plausible run-outs immediately (the craft planner
+        # handles them).
         panel = []
         window_base_coords = None
         image = None
-        for _ in range(3):
+        for attempt in range(3):
             image, window_base_coords = setup_image(False, True)
             panel = dedupe_inventory_aspects(analyze_image_inventory(image, image.load()))
             lost = set(expect) - {name for _, name in panel}
-            if lost:
+            if retry_all_lost:
+                implausible = lost
+            else:
+                implausible = {a for a in lost if state.last_counts.get(a, 0) > 8}
+            if implausible and attempt < 2:
                 log.info(
-                    "Panel scan is missing %s (an animation may be covering the panel); rescanning...",
-                    ", ".join(sorted(lost)),
+                    "Panel scan is missing %s despite recent stock (animation likely); rescanning...",
+                    ", ".join(sorted(implausible)),
                 )
                 sleep(1.2)
                 continue
+            if lost:
+                log.info("No longer in the panel (ran out): %s", ", ".join(sorted(lost)))
             break
         state.inventory_aspects = panel
         state.window_base_coords = window_base_coords
@@ -279,6 +292,7 @@ def ensure_solution_aspects(state: BotState) -> bool:
             counts = ocr_all_counts(np.array(image), panel)
         except Exception:
             counts = {}
+        state.last_counts = counts
         return panel, window_base_coords, counts, {name for _, name in panel}
 
     panel, window_base_coords, counts, owned = scan(expect=prev_owned)
@@ -307,8 +321,10 @@ def ensure_solution_aspects(state: BotState) -> bool:
             owned.add(aspect)
             stale = True
 
-    # Hand placement a current panel and confirm the plan worked.
-    panel, window_base_coords, counts, owned = scan(expect=owned | set(needed))
+    # Hand placement a current panel and confirm the plan worked. Freshly
+    # crafted aspects must be visible now, so any loss here is worth waiting
+    # out (craft animations included).
+    panel, window_base_coords, counts, owned = scan(expect=set(needed), retry_all_lost=True)
     still_missing = [a for a in needed if a not in owned]
     if still_missing:
         log.error("Crafting finished but aspects are still missing: %s", ", ".join(still_missing))
